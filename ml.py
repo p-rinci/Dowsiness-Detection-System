@@ -11,6 +11,7 @@ predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
 sleep = 0
 drowsy = 0
 active = 0
+yawn = 0
 status = ""
 color = (0,0,0)
 
@@ -23,8 +24,16 @@ def eye_aspect_ratio(eye):
     C = dist(eye[0], eye[3])
     return (A + B) / (2.0 * C)
 
+def mouth_opening_ratio(mouth):
+    Z1 = mouth[2]  # top inner lip
+    Z2 = mouth[6]  # bottom inner lip
+    W1 = mouth[0]  # left corner
+    W2 = mouth[4]  # right corner
+    return dist(Z2, Z1) / (3 * dist(W2, W1))
+
 EAR_THRESH_SLEEP = 0.15
 EAR_THRESH_DROWSY = 0.25
+MOR_THRESH_YAWN = 0.6
 FRAME_THRESHOLD = 6
 
 while True:
@@ -43,12 +52,18 @@ while True:
         landmarks = predictor(gray, face)
         landmarks = face_utils.shape_to_np(landmarks)
 
+        # Eyes
         left_eye = landmarks[36:42]
         right_eye = landmarks[42:48]
         left_ear = eye_aspect_ratio(left_eye)
         right_ear = eye_aspect_ratio(right_eye)
         ear = (left_ear + right_ear) / 2.0
 
+        # Mouth
+        mouth = landmarks[60:68]
+        mor = mouth_opening_ratio(mouth)
+
+        # Eye-based drowsiness detection
         if ear < EAR_THRESH_SLEEP:
             sleep += 1
             drowsy = 0
@@ -75,17 +90,31 @@ while True:
                 status = "Active :)"
                 color = (0,255,0)
 
-        for (x, y) in np.concatenate((left_eye, right_eye)):
+        # Mouth-based yawning detection
+        if mor > MOR_THRESH_YAWN:
+            yawn += 1
+            if yawn > FRAME_THRESHOLD:
+                status = "Yawning !!!"
+                color = (255,0,0)
+                try:
+                    winsound.Beep(3000, 800)
+                except:
+                    pass
+        else:
+            yawn = 0
+
+        for (x, y) in np.concatenate((left_eye, right_eye, mouth)):
             cv2.circle(face_frame, (x, y), 1, (255,255,255), -1)
 
     overlay = frame.copy()
-    cv2.rectangle(overlay, (10,10), (360,120), (0,0,0), -1)
+    cv2.rectangle(overlay, (10,10), (400,140), (0,0,0), -1)
     alpha = 0.5
     cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
     cv2.putText(frame, f"Status: {status}", (20,40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     cv2.putText(frame, f"EAR: {ear:.2f}", (20,70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
-    cv2.putText(frame, f"Sleep:{sleep}  Drowsy:{drowsy}  Active:{active}", (20,100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
+    cv2.putText(frame, f"MOR: {mor:.2f}", (20,100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+    cv2.putText(frame, f"Sleep:{sleep}  Drowsy:{drowsy}  Active:{active}  Yawn:{yawn}", (20,130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
 
     cv2.imshow("Frame", frame)
     cv2.imshow("Result of detector", face_frame)
